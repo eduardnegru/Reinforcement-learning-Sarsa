@@ -70,6 +70,49 @@ def epsilon_greedy(Q, state, N, c, env, args):
 	# print(actionToValue.keys())
 	return np.random.choice(list(actionToValue.keys()), p = probabilities)
 
+def upper_confidence_bound(Q, state, N, c, env, args, Nsa):
+	
+	maxAction = env.actions.left
+	maxValue = None
+
+	if N.get(state, None) is None:
+		N[state] = 0
+
+	for action in env.actions:
+
+		rap = 0
+
+		if Nsa.get(state, None) is None:
+			Nsa[state] = {}
+			Nsa[state][action] = 0
+		else:
+			if Nsa[state].get(action, None) is None:
+				Nsa[state][action] = 0
+
+		if Nsa[state][action] == 0:
+			rap = 1
+		else:
+			rap = math.log(N[state]) / float(Nsa[state][action])
+		
+		value = Q.get(state, {}).get(action, 0) + c * math.sqrt(rap)
+		
+		if maxValue is None or value > maxValue:
+			maxValue = value
+			maxAction = action
+
+	return maxAction
+
+def take_action(strategy, Q, str_state, N, env, args, Nsa = {}):
+	
+	if strategy == "softmax":
+		return softmax(Q, str_state, N, args.c, env, args)
+	elif strategy == "e-greedy":
+		return epsilon_greedy(Q, str_state, N, args.c, env, args)
+	elif strategy == "ucb":
+		return upper_confidence_bound(Q, str_state, N, args.c, env, args, Nsa)
+	else:
+		return env.action_space.sample()
+
 def main():
 
 	parser = ArgumentParser()
@@ -108,6 +151,9 @@ def main():
 	parser.add_argument("--graphics", type=bool, default=False,
 		help="Run the program with graphics")
 
+	parser.add_argument("--seed", type=int, default=None,
+		help="Seed to generate maps")
+
 	#Plot image file name
 	parser.add_argument("--file_name", type=str, default="file",
 		help="Plot image file name")
@@ -139,6 +185,11 @@ def main():
 		#declare Q and N
 		Q = {}
 		N = {}
+		Nsa = {}
+
+		if(args.seed is not None):
+			env.seed(args.seed)
+
 		state, done = env.reset(), False
 		str_state = str(env)
 
@@ -146,10 +197,7 @@ def main():
 
 			# print(step)
 
-			if strategy == "softmax":
-				action = softmax(Q, str_state, N, args.c, env, args)
-			else:
-				action = epsilon_greedy(Q, str_state, N, args.c, env, args)
+			action = take_action(strategy, Q, str_state, N, env, args, Nsa)
 
 			while (done == False):
 
@@ -158,6 +206,16 @@ def main():
 				else:
 					N[str_state] += 1
 
+				if strategy == "ucb":
+					if Nsa.get(str_state, None) is None:
+						Nsa[str_state] = {}
+						Nsa[str_state][action] = 0
+					else:
+						if Nsa[str_state].get(action, None) is None:
+							Nsa[str_state][action] = 0
+						else:
+							Nsa[str_state][action] += 1
+
 				next_state, reward, done, _ = env.step(action)
 
 				str_next_state = str(env)
@@ -165,11 +223,8 @@ def main():
 				crt_return += reward
 				crt_length += 1
 
-				if strategy == "softmax":
-					next_action = softmax(Q, str_next_state, N, args.c, env, args)
-				else:
-					next_action = epsilon_greedy(Q, str_next_state, N, args.c, env, args)
-				
+				next_action = take_action(strategy, Q, str_next_state, N, env, args, Nsa)
+
 				if Q.get(str_state, None) is None:
 					Q[str_state] = {}
 					Q[str_state][action] = args.q0
@@ -196,8 +251,13 @@ def main():
 			#After the epoch reset the state
 			if crt_return > 0:
 				victory += 1
+				# print("Victory")
 			else:
 				lost += 1
+				# print("Lost")
+
+			if(args.seed is not None):
+				env.seed(args.seed)
 
 			state, done = env.reset(), False
 			recent_returns[strategy].append(crt_return)  # câștigul episodului încheiat
@@ -233,7 +293,7 @@ def main():
 	plt.title("Average episode length")
 
 	for strategy in args.strategy:
-		plt.plot(steps[strategy], avg_lengths[strategy], c = ("r" if strategy == "e-greedy" else "b"), label=strategy)
+		plt.plot(steps[strategy], avg_lengths[strategy], c = ("r" if strategy == "e-greedy" else ("b" if strategy == "softmax" else "g")), label=strategy)
 
 	plt.legend()
 
@@ -241,7 +301,7 @@ def main():
 	plt.title("Average episode return")
 
 	for strategy in args.strategy:
-		plt.plot(steps[strategy], avg_returns[strategy], c = ("r" if strategy == "e-greedy" else "b"), label=strategy)
+		plt.plot(steps[strategy], avg_returns[strategy], c = ("r" if strategy == "e-greedy" else ("b" if strategy == "softmax" else "g")), label=strategy)
 	
 	plt.legend()
 
