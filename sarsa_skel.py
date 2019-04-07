@@ -22,7 +22,7 @@ def softmax(Q, state, N, c, env, args):
 
 	if N[state] > 0:
 		for (a1, a2) in actions:
-			differece = abs(Q.get((state, a1), 0) - Q.get((state, a2), 0))
+			differece = abs(Q.get(state, {}).get(a1, 0) - Q.get(state, {}).get(a2, 0))
 			if max is None or max < differece:
 				max = differece
 		
@@ -35,9 +35,9 @@ def softmax(Q, state, N, c, env, args):
 	sum_qa = 0.0
 
 	for action in env.actions:
-		sum_qa += math.exp(beta * Q.get((state, action), 0))
+		sum_qa += math.exp(beta * Q.get(state, {}).get(action, 0))
 
-	probabilities = [math.exp(beta * Q.get((state, action), 0)) / float(sum_qa) for action in env.actions]
+	probabilities = [math.exp(beta * Q.get(state, {}).get(action, 0)) / float(sum_qa) for action in env.actions]
 
 	return np.random.choice(list(env.actions), p = probabilities)
 
@@ -56,7 +56,7 @@ def epsilon_greedy(Q, state, N, c, env, args):
 	actionToValue = {}
 
 	for action in env.actions:
-		actionToValue[action] = Q.get((state, action), 0)
+		actionToValue[action] = Q.get(state, {}).get(action, 0)
 
 	maxValue = max(actionToValue.values())
 	actionCount = len(actionToValue.keys())
@@ -71,13 +71,11 @@ def epsilon_greedy(Q, state, N, c, env, args):
 	return np.random.choice(list(actionToValue.keys()), p = probabilities)
 
 def main():
-	""" Exemplu de evaluare a unei politici pe parcursul antrenării (online).
-	"""
 
 	parser = ArgumentParser()
 
 	# Learning rate
-	parser.add_argument("--learning_rate", type=float, default=0.1,
+	parser.add_argument("--learning_rate", type=float, default=0.01,
 						help="Learning rate -> Alpha")
 	
 	#Discount
@@ -85,11 +83,11 @@ def main():
 						help="Discount -> Gamma.")
 
 	#Epochs
-	parser.add_argument("--epochs", type=int, default=5000,
+	parser.add_argument("--epochs", type=int, default=50000,
 		help="Number of epochs")
 
 	#Report frequency
-	parser.add_argument("--report_frequency", type=int, default=2000,
+	parser.add_argument("--report_frequency", type=int, default=500,
 		help="Result report frequency")
 
 	parser.add_argument("--c", type=float, default=0.05,
@@ -99,12 +97,16 @@ def main():
 		help="Environment type")
 
 	#Strategy
-	parser.add_argument("--strategy", type=str, default="e-greedy",
+	parser.add_argument("--strategy", nargs="+", default=["e-greedy"],
 		help="Strategy. Possible values : softmax or e-greedy")
 
 	#Default Q value
 	parser.add_argument("--q0", type=int, default=0,
 		help="Default Q value")
+
+	#Default Q value
+	parser.add_argument("--graphics", type=bool, default=False,
+		help="Run the program with graphics")
 
 	#Plot image file name
 	parser.add_argument("--file_name", type=str, default="file",
@@ -118,125 +120,145 @@ def main():
 
 	# renderer = env.render("human")
 
-	#declare Q and N
-	Q = {}
-	N = {}
+	steps, avg_returns, avg_lengths = {}, {}, {}
+	recent_returns, recent_lengths = {}, {}
 
-	steps, avg_returns, avg_lengths = [], [], []
-	recent_returns, recent_lengths = [], []
-	crt_return, crt_length = 0, 0
+	for strategy in args.strategy:
+		avg_lengths[strategy] = []
+		avg_returns[strategy] = []
+		steps[strategy] = []
+		recent_returns[strategy] = []
+		recent_lengths[strategy] = []
 
-	state, done = env.reset(), False
+	for strategy in args.strategy:
 
-	#initialize frequency for the first state
-
-	# str_state = str(state)
-	str_state = str(env)
-
-	for step in range(1, args.epochs + 1):
-
-		# print(step)
-
-		if args.strategy == "softmax":
-			action = softmax(Q, str_state, N, args.c, env, args)
-		else:
-			action = epsilon_greedy(Q, str_state, N, args.c, env, args)
-
-		while (done == False):
-
-			if(N.get(str_state, None) is None):
-				N[str_state] = 0
-			else:
-				N[str_state] += 1
-
-			next_state, reward, done, _ = env.step(action)
-
-			str_next_state = str(env)
-
-			crt_return += reward
-			crt_length += 1
-
-			if args.strategy == "softmax":
-				next_action = softmax(Q, str_next_state, N, args.c, env, args)
-			else:
-				next_action = epsilon_greedy(Q, str_next_state, N, args.c, env, args)
-
-			if(Q.get((str_state, action), None) is None):
-				Q[(str_state, action)] = args.q0
-			
-			if(Q.get((str_next_state, next_action), None) is None):
-				Q[(str_next_state, next_action)] = args.q0
-
-			Q[(str_state, action)] +=  args.learning_rate * (reward + args.discount * Q[(str_next_state, next_action)] - Q[(str_state, action)])
-
-			state = next_state
-			action = next_action
-			str_state = str_next_state
-			# env.render("human")
-
-		#After the epoch reset the state
-		# if crt_return > 0:
-		# 	print(str(step) + " -> victory!")
-		# else:
-		# 	print(str(step) + " -> lost")
-
-		state, done = env.reset(), False
-		recent_returns.append(crt_return)  # câștigul episodului încheiat
-		recent_lengths.append(crt_length)
+		victory = 0
+		lost = 0
 		crt_return, crt_length = 0, 0
-		
-		if step % args.report_frequency == 0:
-			avg_return = np.mean(recent_returns)  # media câștigurilor recente
-			avg_length = np.mean(recent_lengths)  # media lungimilor episoadelor
 
-			steps.append(step)  # pasul la care am reținut valorile
-			avg_returns.append(avg_return)
-			avg_lengths.append(avg_length)
+		#declare Q and N
+		Q = {}
+		N = {}
+		state, done = env.reset(), False
+		str_state = str(env)
 
-			print(  # pylint: disable=bad-continuation
-				f"Step {step:4d}"
-				f" | Avg. return = {avg_return:.2f}"
-				f" | Avg. ep. length: {avg_length:.2f}"
-			)
+		for step in range(1, args.epochs + 1):
 
-			recent_returns.clear()
-			recent_lengths.clear()
+			# print(step)
 
-	# La finalul antrenării afișăm evoluția câștigului mediu
-	# În temă vreau să faceți media mai multor astfel de traiectorii pentru
-	# a nu trage concluzii fără a lua în calcul varianța algoritmilor
+			if strategy == "softmax":
+				action = softmax(Q, str_state, N, args.c, env, args)
+			else:
+				action = epsilon_greedy(Q, str_state, N, args.c, env, args)
+
+			while (done == False):
+
+				if(N.get(str_state, None) is None):
+					N[str_state] = 0
+				else:
+					N[str_state] += 1
+
+				next_state, reward, done, _ = env.step(action)
+
+				str_next_state = str(env)
+
+				crt_return += reward
+				crt_length += 1
+
+				if strategy == "softmax":
+					next_action = softmax(Q, str_next_state, N, args.c, env, args)
+				else:
+					next_action = epsilon_greedy(Q, str_next_state, N, args.c, env, args)
+				
+				if Q.get(str_state, None) is None:
+					Q[str_state] = {}
+					Q[str_state][action] = args.q0
+				else:
+					if Q[str_state].get(action, None) is None:
+						Q[str_state][action] = args.q0
+
+				if Q.get(str_next_state, None) is None:
+					Q[str_next_state] = {}
+					Q[str_next_state][next_action] = args.q0
+				else:
+					if Q[str_next_state].get(next_action, None) is None:
+						Q[str_next_state][next_action] = args.q0
+
+				Q[str_state][action] +=  args.learning_rate * (reward + args.discount * Q[str_next_state][next_action] - Q[str_state][action])
+
+				state = next_state
+				action = next_action
+				str_state = str_next_state
+				
+				if(args.graphics is not False):
+					env.render("human")
+
+			#After the epoch reset the state
+			if crt_return > 0:
+				victory += 1
+			else:
+				lost += 1
+
+			state, done = env.reset(), False
+			recent_returns[strategy].append(crt_return)  # câștigul episodului încheiat
+			recent_lengths[strategy].append(crt_length)
+			crt_return, crt_length = 0, 0
+			
+			if step % args.report_frequency == 0:
+
+				avg_return = np.mean(recent_returns[strategy])  # media câștigurilor recente
+				avg_length = np.mean(recent_lengths[strategy])  # media lungimilor episoadelor
+				steps[strategy].append(step)  # pasul la care am reținut valorile
+				avg_returns[strategy].append(avg_return)
+				avg_lengths[strategy].append(avg_length)
+
+				print(  # pylint: disable=bad-continuation
+					f"Step {step:4d}"
+					f" | Avg. return = {avg_return:.2f}"
+					f" | Avg. ep. length: {avg_length:.2f}"
+					f" | Victory percentage: {victory / float(lost + victory) if lost + victory != 0 else 100:.2f}"
+				)
+
+				recent_returns[strategy].clear()
+				recent_lengths[strategy].clear()
 
 	file_name = str(args.environment) + "_" + str(args.strategy) + "_" + str(args.learning_rate) + "_" + str(args.c) + "_" + str(args.epochs)
 
-	description = "Map=" + args.environment + " Strategy=" + args.strategy + " Alpha=" + str(args.learning_rate) + " Gamma=" + str(args.discount) + " C=" + str(args.c) + " Epochs=" + str(args.epochs)
+	description = "Map=" + args.environment + " Strategy=" + str(args.strategy) + " Alpha=" + str(args.learning_rate) + " Gamma=" + str(args.discount) + " C=" + str(args.c) + " Epochs=" + str(args.epochs)
 	
 	
-	# plt.figure(figsize=(15, 5))
-	# plt.suptitle("Muie steaua")
-	# plt.subplot(131)
-	# plt.title("Average episode length")
-	# plt.plot(steps, avg_returns, c='black', label='SAMME')
+	plt.figure(figsize=(15, 5))
+	plt.suptitle(description)
+	plt.subplot(131)
+	plt.title("Average episode length")
 
-	# plt.legend()
-	# plt.ylim(0.18, 0.62)
-	# plt.ylabel('Test Error')
-	# plt.xlabel('Number of Trees')
+	for strategy in args.strategy:
+		plt.plot(steps[strategy], avg_lengths[strategy], c = ("r" if strategy == "e-greedy" else "b"), label=strategy)
 
-	# plt.subplot(132)
-	# plt.title("Average episode return")
-	# plt.plot(steps, avg_lengths, c='black', label='SAMME')
+	plt.legend()
 
-	_fig, (ax1, ax2) = plt.subplots(ncols=2)
-	ax1.plot(steps, avg_lengths, label=args.strategy)
-	plt.suptitle(description, fontsize = 7)
+	plt.subplot(132)
+	plt.title("Average episode return")
+
+	for strategy in args.strategy:
+		plt.plot(steps[strategy], avg_returns[strategy], c = ("r" if strategy == "e-greedy" else "b"), label=strategy)
 	
-	ax1.set_title("Average episode length")
-	ax1.legend()
+	plt.legend()
 
-	ax2.plot(steps, avg_returns, label=args.strategy)
-	ax2.set_title("Average episode return")
-	ax2.legend()
 	plt.savefig(file_name, format='pdf')
+	plt.show()
+		
+		# _fig, (ax1, ax2) = plt.subplots(ncols=2)
+		# ax1.plot(steps, avg_lengths, label=strategy)
+		# plt.suptitle(description, fontsize = 7)
+		
+		# ax1.set_title("Average episode length")
+		# ax1.legend()
+
+		# ax2.plot(steps, avg_returns, label=strategy)
+		# ax2.set_title("Average episode return")
+		# ax2.legend()
+		# plt.savefig(file_name, format='pdf')
 
 if __name__ == "__main__":
 	main()
