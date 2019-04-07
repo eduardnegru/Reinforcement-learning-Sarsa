@@ -251,10 +251,8 @@ def main():
 			#After the epoch reset the state
 			if crt_return > 0:
 				victory += 1
-				# print("Victory")
 			else:
 				lost += 1
-				# print("Lost")
 
 			if(args.seed is not None):
 				env.seed(args.seed)
@@ -307,18 +305,6 @@ def main():
 
 	plt.savefig(file_name, format='pdf')
 	plt.show()
-		
-		# _fig, (ax1, ax2) = plt.subplots(ncols=2)
-		# ax1.plot(steps, avg_lengths, label=strategy)
-		# plt.suptitle(description, fontsize = 7)
-		
-		# ax1.set_title("Average episode length")
-		# ax1.legend()
-
-		# ax2.plot(steps, avg_returns, label=strategy)
-		# ax2.set_title("Average episode return")
-		# ax2.legend()
-		# plt.savefig(file_name, format='pdf')
 
 if __name__ == "__main__":
 	main()
